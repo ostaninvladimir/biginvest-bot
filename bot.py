@@ -1,3 +1,7 @@
+import logging
+
+logging.basicConfig(level=logging.INFO)
+logging.info("Bot started successfully")
 import os
 import asyncio
 import json
