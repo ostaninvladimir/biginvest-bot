@@ -1,8 +1,6 @@
 import os
 import asyncio
 import json
-from datetime import datetime
-
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import CommandStart
 from aiogram.utils.keyboard import InlineKeyboardBuilder
@@ -15,28 +13,41 @@ from dotenv import load_dotenv
 load_dotenv()
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-API_BASE = os.getenv("API_BASE", "http://127.0.0.1:8080")
+
+# 🚨 ВАЖНО: по умолчанию используем PROD API
+API_BASE = os.getenv(
+    "API_BASE",
+    "https://biginvest-api-production.up.railway.app"
+)
+
 API_TOKEN = os.getenv("API_TOKEN", "dev-token")
 MANAGER_ID = os.getenv("MANAGER_ID", "mgr-001")
 
-bot = Bot(BOT_TOKEN)
+bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
 # ----------------------------------
 # API HELPERS
 # ----------------------------------
 async def api_get(session, path, params=None):
-    headers = {"Authorization": f"Bearer {API_TOKEN}"}
+    headers = {
+        "Authorization": f"Bearer {API_TOKEN}"
+    }
     async with session.get(f"{API_BASE}{path}", headers=headers, params=params) as r:
         r.raise_for_status()
         return await r.json()
+
 
 async def api_post(session, path, payload):
     headers = {
         "Authorization": f"Bearer {API_TOKEN}",
         "Content-Type": "application/json"
     }
-    async with session.post(f"{API_BASE}{path}", headers=headers, data=json.dumps(payload)) as r:
+    async with session.post(
+        f"{API_BASE}{path}",
+        headers=headers,
+        data=json.dumps(payload)
+    ) as r:
         r.raise_for_status()
         return await r.json()
 
@@ -53,14 +64,13 @@ def action_kb(app_id: str):
 
 
 def format_application(app: dict) -> str:
-    """Beautiful message for manager."""
     lot = app.get("lot", {})
     customer = app.get("customer", {})
 
     tags = lot.get("tags", [])
     tag_string = ", ".join(tags) if tags else "—"
 
-    text = (
+    return (
         f"🆕 Заявка #{app['id']}\n"
         f"Создана: {app.get('createdAt', '—')}\n"
         f"Статус: {app.get('status', 'NEW')}\n\n"
@@ -74,25 +84,23 @@ def format_application(app: dict) -> str:
         f"Цена: {lot.get('price')}\n"
         f"Теги: {tag_string}\n"
     )
-    return text
 
 # ----------------------------------
-# SEND NEXT APPLICATION
+# BUSINESS LOGIC
 # ----------------------------------
 async def send_next_application(chat_id: int):
-    async with aiohttp.ClientSession() as s:
+    async with aiohttp.ClientSession() as session:
         try:
-            # 1. Получаем список новых заявок
-            items = await api_get(s, "/applications/new")
+            items = await api_get(session, "/applications/new")
+
             if not items:
                 await bot.send_message(chat_id, "Новых заявок пока нет ✨")
                 return
 
-            app = items[0]  # Вариант A — берём первую заявку
+            app = items[0]
 
-            # 2. Ставим статус IN_PROGRESS через API
             await api_post(
-                s,
+                session,
                 f"/applications/{app['id']}/status",
                 {
                     "status": "IN_PROGRESS",
@@ -101,9 +109,11 @@ async def send_next_application(chat_id: int):
                 }
             )
 
-            # 3. Показываем заявку менеджеру
-            text = format_application(app)
-            await bot.send_message(chat_id, text, reply_markup=action_kb(app["id"]))
+            await bot.send_message(
+                chat_id,
+                format_application(app),
+                reply_markup=action_kb(app["id"])
+            )
 
         except Exception as e:
             await bot.send_message(chat_id, f"Ошибка при получении заявки: {e}")
@@ -119,13 +129,12 @@ async def start(m: types.Message):
         "• /next — взять следующую заявку"
     )
 
+
 @dp.message(F.text == "/next")
 async def next_cmd(m: types.Message):
     await send_next_application(m.chat.id)
 
-# ----------------------------
-# ACTION BUTTONS (approve / reject / needinfo)
-# ----------------------------
+
 @dp.callback_query(F.data.startswith(("approve:", "reject:", "needinfo:")))
 async def handle_action(cq: types.CallbackQuery):
     try:
@@ -135,21 +144,22 @@ async def handle_action(cq: types.CallbackQuery):
             "reject": "REJECTED",
             "needinfo": "NEED_INFO"
         }
-        status = status_map[action]
 
-        async with aiohttp.ClientSession() as s:
+        async with aiohttp.ClientSession() as session:
             await api_post(
-                s,
+                session,
                 f"/applications/{app_id}/status",
                 {
-                    "status": status,
+                    "status": status_map[action],
                     "managerId": MANAGER_ID,
                     "comment": None
                 }
             )
 
         await cq.message.edit_reply_markup(reply_markup=None)
-        await cq.message.reply(f"Статус заявки #{app_id} → {status}")
+        await cq.message.reply(
+            f"Статус заявки #{app_id} → {status_map[action]}"
+        )
         await cq.answer("Готово")
 
     except Exception as e:
@@ -160,10 +170,11 @@ async def handle_action(cq: types.CallbackQuery):
 # ----------------------------------
 async def main():
     if not BOT_TOKEN:
-        raise RuntimeError("Не найден BOT_TOKEN в .env")
+        raise RuntimeError("BOT_TOKEN не найден")
 
-    print("Bot is running...")
+    print("🤖 BIG Invest CRM Bot is running...")
     await dp.start_polling(bot)
+
 
 if __name__ == "__main__":
     asyncio.run(main())
