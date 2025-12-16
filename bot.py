@@ -1,15 +1,20 @@
+import os
+import json
+import asyncio
 import logging
 
-logging.basicConfig(level=logging.INFO)
-logging.info("Bot started successfully")
-import os
-import asyncio
-import json
+import aiohttp
+from dotenv import load_dotenv
+
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import CommandStart
 from aiogram.utils.keyboard import InlineKeyboardBuilder
-import aiohttp
-from dotenv import load_dotenv
+
+# ----------------------------------
+# LOGGING
+# ----------------------------------
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # ----------------------------------
 # ENVIRONMENT
@@ -17,16 +22,19 @@ from dotenv import load_dotenv
 load_dotenv()
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-
-# 🚨 ВАЖНО: по умолчанию используем PROD API
 API_BASE = os.getenv(
     "API_BASE",
     "https://biginvest-api-production.up.railway.app"
 )
-
 API_TOKEN = os.getenv("API_TOKEN", "dev-token")
 MANAGER_ID = os.getenv("MANAGER_ID", "mgr-001")
 
+if not BOT_TOKEN:
+    raise RuntimeError("BOT_TOKEN не найден")
+
+# ----------------------------------
+# BOT INIT
+# ----------------------------------
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
@@ -58,7 +66,7 @@ async def api_post(session, path, payload):
 # ----------------------------------
 # UI HELPERS
 # ----------------------------------
-def action_kb(app_id: str):
+def action_kb(app_id: int):
     kb = InlineKeyboardBuilder()
     kb.button(text="✅ Одобрить", callback_data=f"approve:{app_id}")
     kb.button(text="❌ Отклонить", callback_data=f"reject:{app_id}")
@@ -86,7 +94,7 @@ def format_application(app: dict) -> str:
         f"Город: {lot.get('city')}\n"
         f"Блок: {lot.get('block')}\n"
         f"Цена: {lot.get('price')}\n"
-        f"Теги: {tag_string}\n"
+        f"Теги: {tag_string}"
     )
 
 # ----------------------------------
@@ -103,6 +111,7 @@ async def send_next_application(chat_id: int):
 
             app = items[0]
 
+            # помечаем как взятую в работу
             await api_post(
                 session,
                 f"/applications/{app['id']}/status",
@@ -120,6 +129,7 @@ async def send_next_application(chat_id: int):
             )
 
         except Exception as e:
+            logger.exception("Ошибка при получении заявки")
             await bot.send_message(chat_id, f"Ошибка при получении заявки: {e}")
 
 # ----------------------------------
@@ -129,7 +139,7 @@ async def send_next_application(chat_id: int):
 async def start(m: types.Message):
     await m.answer(
         "Привет! Я бот для обработки заявок из BIG Invest.\n\n"
-        "Доступные команды:\n"
+        "Команды:\n"
         "• /next — взять следующую заявку"
     )
 
@@ -167,26 +177,17 @@ async def handle_action(cq: types.CallbackQuery):
         await cq.answer("Готово")
 
     except Exception as e:
+        logger.exception("Ошибка обработки действия")
         await cq.answer(f"Ошибка: {e}", show_alert=True)
 
 # ----------------------------------
 # MAIN
 # ----------------------------------
-# ----------------------------------
-# MAIN
-# ----------------------------------
 async def main():
-    if not BOT_TOKEN:
-        raise RuntimeError("BOT_TOKEN не найден")
-
-    # на всякий случай чистим webhook / polling-конфликт
     await bot.delete_webhook(drop_pending_updates=True)
-
-    print("🤖 BIG Invest CRM Bot is running...")
+    logger.info("🤖 BIG Invest CRM Bot is running...")
     await dp.start_polling(bot)
 
 
 if __name__ == "__main__":
-    import asyncio
     asyncio.run(main())
-
