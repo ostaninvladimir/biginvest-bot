@@ -1,10 +1,3 @@
-async def main():
-    await bot.delete_webhook(drop_pending_updates=True)
-    await dp.start_polling(bot)
-
-if __name__ == "__main__":
-    asyncio.run(main())
-
 import logging
 
 logging.basicConfig(level=logging.INFO)
@@ -179,13 +172,21 @@ async def handle_action(cq: types.CallbackQuery):
 # ----------------------------------
 # MAIN
 # ----------------------------------
+# ----------------------------------
+# MAIN
+# ----------------------------------
 async def main():
     if not BOT_TOKEN:
         raise RuntimeError("BOT_TOKEN не найден")
+
+    # на всякий случай чистим webhook / polling-конфликт
+    await bot.delete_webhook(drop_pending_updates=True)
 
     print("🤖 BIG Invest CRM Bot is running...")
     await dp.start_polling(bot)
 
 
 if __name__ == "__main__":
+    import asyncio
     asyncio.run(main())
+
